@@ -25,7 +25,7 @@ A ComfyUI extension for music generation and lyrics transcription based on the [
    ```bash
    git clone https://github.com/BobRandomNumber/ComfyUI-HeartMuLa.git
    ```
-3. Install the specific dependencies:
+3. Install dependencies:
 
    ```bash
    pip install -r requirements.txt
