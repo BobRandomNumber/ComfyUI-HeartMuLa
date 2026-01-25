@@ -3,9 +3,11 @@
 A ComfyUI extension for music generation and lyrics transcription based on the [HeartMuLa model family](https://huggingface.co/HeartMuLa) and [heartlib source code](https://github.com/HeartMuLa/heartlib).
 
 ## Features
+- **Modular Architecture**: Separate LLM and Codec loaders for better memory management.
+- **Inference Optimization**: Integrated `torch.compile` support for Windows, utilizing block-wise compilation to maximize speed without graph breaks.
 - **Text-to-Music**: Generate high-fidelity audio from lyrics and style tags.
 - **Lyrics Transcription**: Automatic speech-to-text with support for long-form audio.
-- **Audio Post-Processing**: Integrated tools for normalization, stereo widening, and frequency filtering.
+- **Folder Picker UI**: Custom folder browser for easy model path selection directly in the UI.
 
 ![HeartMuLaGeneration](https://github.com/BobRandomNumber/ComfyUI-HeartMuLa/blob/main/assets/HeartMuLaGeneration.png)
 
@@ -23,7 +25,7 @@ A ComfyUI extension for music generation and lyrics transcription based on the [
    ```bash
    git clone https://github.com/BobRandomNumber/ComfyUI-HeartMuLa.git
    ```
-3. Install the dependencies:
+3. Install the specific dependencies:
 
    ```bash
    pip install -r requirements.txt
@@ -39,7 +41,7 @@ Place these files directly in the root of the `HeartMuLa/` folder:
 - [tokenizer.json](https://huggingface.co/HeartMuLa/HeartMuLaGen/blob/main/tokenizer.json)
 
 ### 2. Model Directories
-Download the repositories below as subfolders inside the `HeartMuLa/` directory. The folder names must match exactly for the loader to recognize them.
+Download the repositories below as subfolders inside the `HeartMuLa/` directory.
 
 #### For Standard Generation (oss-3B)
 - **Model**: [HeartMuLa-oss-3B](https://huggingface.co/HeartMuLa/HeartMuLa-oss-3B/tree/main)
@@ -66,28 +68,51 @@ ComfyUI/models/HeartMuLa/
 
 ## Node Descriptions
 
-### HeartMuLa Loader
-Loads the generation and decoding pipelines.
-- **base_path**: The root folder containing your HeartMuLa models. Use the "Select Base Path" button to set this.
-- **model_version**: Select between the standard `oss-3B` or the reinforcement-learning tuned `RL-oss-3B` model. The loader automatically pairs the correct model with its specific codec.
+### 1. HeartMuLa Model Loader
+Loads the LLM backbone for music generation.
+- **base_path**: Folder containing the model weights. Use the integrated 📁 browser button.
+- **model_version**: Select which model version to use (Standard or RL-Tuned).
+- **torch_compile**: Enable/Disable `torch.compile` optimization.
+- **compile_backend**: Choose the compiler backend (Default: `inductor`).
+- **compile_mode**: Choose the optimization level (`default` is best for compatibility).
 
-### HeartMuLa Music Generator
-Generates audio based on text inputs.
-- **lyrics**: The text to be sung/spoken.
-- **tags**: Style descriptions (e.g., "electronic, synthwave, 120bpm").
-- **duration_seconds**: Desired length of the output (Default: 30s).
-- **cfg_scale**: Guidance scale for tag adherence (Default: 1.5).
+### 2. HeartMuLa Codec Loader
+Loads the audio decoder separately. Runs in standard `fp32` for maximum audio fidelity.
+- **base_path**: Folder containing the codec weights. Use the integrated 📁 browser button.
+- **codec_version**: Select which codec version to use.
 
-### Audio Post-Processor
+### 3. HeartMuLa Music Generator
+The core generation node.
+- **lyrics**: The text to be sung or spoken.
+- **tags**: Style descriptions (e.g., "piano, happy, wedding, synthesizer, romantic").
+- **duration_seconds**: Desired length of the output audio.
+- **seed**: Control randomness for reproducible generations.
+- **temperature**: Higher values increase creativity/randomness, lower values make it more deterministic.
+- **top_k**: Limits sampling to the top K most likely tokens.
+- **cfg_scale**: Classifier-Free Guidance scale. Higher values follow tags more strictly (Default: 1.5).
+
+### 4. HeartMuLa Audio Decoder
+Converts the generated model tokens into playable audio.
+
+### 5. HeartMuLa Transcription Loader
+Loads the Whisper-based lyrics transcription model.
+- **base_path**: Folder containing the transcriptor weights. Use the integrated 📁 browser button.
+
+### 6. HeartMuLa Lyrics Transcriber
+Converts input audio into text.
+- **max_new_tokens**: Maximum length of the generated text.
+- **num_beams**: Number of beams for beam search.
+- **condition_on_prev_tokens**: If True, uses previous segments as context.
+- **logprob_threshold**: Threshold for log probability (Default: -1.0).
+- **no_speech_threshold**: Threshold for detecting silent or non-speech segments.
+- **temperature**: Sampling temperature (0.0 enables robust multi-temperature decoding).
+
+### 7. Audio Post-Processor
 A DSP utility for mastering the generated output.
 - **normalize**: Peak normalization to 0dB.
 - **stereo_width**: Adjusts stereo image width (Mid-Side processing).
 - **high_pass / low_pass**: Removes unwanted frequencies.
-
-### HeartMuLa Lyrics Transcriber
-Converts audio back into text.
-- **max_new_tokens**: Limit for the generated transcription length.
-- **temperature**: Sampling temperature (0.0 enables robust multi-temperature decoding).
+- **gain_db**: Adjust output volume.
 
 ## Citation
 

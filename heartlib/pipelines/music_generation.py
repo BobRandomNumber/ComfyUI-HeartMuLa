@@ -3,6 +3,7 @@ from tokenizers import Tokenizer
 from ..heartmula.modeling_heartmula import HeartMuLa
 from ..heartcodec.modeling_heartcodec import HeartCodec
 import torch
+import warnings
 from typing import Dict, Any, Optional
 import os
 from dataclasses import dataclass
@@ -11,6 +12,30 @@ import torchaudio
 import json
 # Removed BitsAndBytesConfig import
 
+# --- Global Torch Compile Configuration ---
+torch._dynamo.config.suppress_errors = True
+torch._dynamo.config.cache_size_limit = 64
+torch._dynamo.config.recompile_limit = 128
+torch._dynamo.config.force_parameter_static_shapes = False
+
+# Inductor stability settings for Windows
+try:
+    import torch._inductor.config as inductor_config
+    inductor_config.fallback_random = True
+    inductor_config.permute_fusion = False 
+    inductor_config.epilogue_fusion = False
+    inductor_config.triton.cudagraphs = False 
+except ImportError:
+    pass
+
+def _get_compile_backend(requested_backend: Optional[str]) -> str:
+    if requested_backend:
+        return requested_backend
+    try:
+        import triton
+        return "inductor"
+    except ImportError:
+        return "eager"
 
 @dataclass
 class HeartMuLaGenConfig:
@@ -25,50 +50,74 @@ class HeartMuLaGenConfig:
             data = json.load(fp)
         return cls(**data)
 
-
-class HeartMuLaGenPipeline(Pipeline):
+class HeartMuLaModel:
     def __init__(
         self,
         model: HeartMuLa,
-        audio_codec: HeartCodec,
-        muq_mulan: Optional[Any],
         text_tokenizer: Tokenizer,
         config: HeartMuLaGenConfig,
-        device: torch.device,
         dtype: torch.dtype,
+        compile_model: bool = False,
+        compile_backend: Optional[str] = None,
+        compile_mode: str = "default",
     ):
-        super().__init__(model, dtype=dtype)
-        self.model = model
-        self.audio_codec = audio_codec
-        self.muq_mulan = muq_mulan
+        self.model = model.to(dtype) # Ensure all parameters are cast
         self.text_tokenizer = text_tokenizer
         self.config = config
+        self.dtype = dtype
+        
+        self._compile_model = compile_model
+        self._compile_backend = compile_backend
+        self._compile_mode = compile_mode
+        self._compilation_done = False
+        self._cache_bs = 0
 
-        self._parallel_number = audio_codec.config.num_quantizers + 1
-        self._muq_dim = model.config.muq_dim
+        self._parallel_number = 8 + 1 # Default for 3B
+        if hasattr(model.config, "audio_num_codebooks"):
+            self._parallel_number = model.config.audio_num_codebooks + 1
 
-    def to(self, device: torch.device):
-        self.model.to(device)
-        self.audio_codec.to(device)
-        self.device = device
-        return self
+    def setup_caches(self, max_batch_size: int):
+        """Setup or reset caches based on current batch size."""
+        if self._cache_bs != max_batch_size:
+            # We must filter the torchtune warning because it's noisy and we handle it
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", message=".*Key value caches are already setup.*")
+                self.model.setup_caches(max_batch_size=max_batch_size)
+            self._cache_bs = max_batch_size
+        else:
+            self.model.reset_caches()
 
-    def _sanitize_parameters(self, **kwargs):
-        preprocess_kwargs = {"cfg_scale": kwargs.get("cfg_scale", 1.5)}
-        forward_kwargs = {
-            "max_audio_length_ms": kwargs.get("max_audio_length_ms", 120_000),
-            "temperature": kwargs.get("temperature", 1.0),
-            "topk": kwargs.get("topk", 50),
-            "cfg_scale": kwargs.get("cfg_scale", 1.5),
-        }
-        postprocess_kwargs = {
-            "save_path": kwargs.get("save_path", "output.mp3"),
-        }
-        return preprocess_kwargs, forward_kwargs, postprocess_kwargs
+    def ensure_compiled(self):
+        if self._compile_model and not self._compilation_done:
+            self._apply_layer_compilation()
+            self._compilation_done = True
+
+    def _apply_layer_compilation(self):
+        backend = _get_compile_backend(self._compile_backend)
+        print(f"Compiling HeartMuLa Transformer layers with backend='{backend}', mode='{self._compile_mode}'...")
+        
+        def compile_module_layers(module_name, module):
+            if hasattr(module, "layers"):
+                print(f"  - Compiling {len(module.layers)} individual blocks in {module_name}...")
+                for i in range(len(module.layers)):
+                    try:
+                        module.layers[i] = torch.compile(
+                            module.layers[i],
+                            backend=backend,
+                            mode=self._compile_mode,
+                            fullgraph=False,
+                            dynamic=False
+                        )
+                    except Exception as e:
+                        print(f"      ! Block {i} compilation failed: {e}")
+            else:
+                 warnings.warn(f"Could not find 'layers' in {module_name} to compile.")
+
+        compile_module_layers("Backbone", self.model.backbone)
+        compile_module_layers("Internal Decoder", self.model.decoder)
+        print("HeartMuLa compilation setup complete.")
 
     def preprocess(self, inputs: Dict[str, Any], cfg_scale: float):
-
-        # process tags
         tags = inputs["tags"]
         if os.path.isfile(tags):
             with open(tags, encoding="utf-8") as fp:
@@ -76,7 +125,6 @@ class HeartMuLaGenPipeline(Pipeline):
         assert isinstance(tags, str), f"tags must be a string, but got {type(tags)}"
 
         tags = tags.lower()
-        # encapsulate with special <tag> and </tag> tokens
         if not tags.startswith("<tag>"):
             tags = f"<tag>{tags}"
         if not tags.endswith("</tag>"):
@@ -88,21 +136,14 @@ class HeartMuLaGenPipeline(Pipeline):
         if tags_ids[-1] != self.config.text_eos_id:
             tags_ids = tags_ids + [self.config.text_eos_id]
 
-        # process reference audio
-        ref_audio = inputs.get("ref_audio", None)
-        if ref_audio is not None:
-            raise NotImplementedError("ref_audio is not supported yet.")
-        muq_embed = torch.zeros([self._muq_dim], dtype=self.dtype)
+        muq_embed = torch.zeros([self.model.config.muq_dim], dtype=self.dtype)
         muq_idx = len(tags_ids)
 
-        # process lyrics
         lyrics = inputs["lyrics"]
         if os.path.isfile(lyrics):
             with open(lyrics, encoding="utf-8") as fp:
                 lyrics = fp.read()
-        assert isinstance(
-            lyrics, str
-        ), f"lyrics must be a string, but got {type(lyrics)}"
+        assert isinstance(lyrics, str), f"lyrics must be a string, but got {type(lyrics)}"
         lyrics = lyrics.lower()
 
         lyrics_ids = self.text_tokenizer.encode(lyrics).ids
@@ -111,9 +152,7 @@ class HeartMuLaGenPipeline(Pipeline):
         if lyrics_ids[-1] != self.config.text_eos_id:
             lyrics_ids = lyrics_ids + [self.config.text_eos_id]
 
-        # cat them together. tags, ref_audio, lyrics
         prompt_len = len(tags_ids) + 1 + len(lyrics_ids)
-
         tokens = torch.zeros([prompt_len, self._parallel_number], dtype=torch.long)
         tokens[: len(tags_ids), -1] = torch.tensor(tags_ids)
         tokens[len(tags_ids) + 1 :, -1] = torch.tensor(lyrics_ids)
@@ -139,24 +178,25 @@ class HeartMuLaGenPipeline(Pipeline):
 
     def generate_tokens(
         self,
-        model_inputs: Dict[str, Any],
+        processed_inputs: Dict[str, Any],
         max_audio_length_ms: int,
         temperature: float,
         topk: int,
         cfg_scale: float,
         callback: Optional[Any] = None,
     ):
-        prompt_tokens = model_inputs["tokens"]
-        prompt_tokens_mask = model_inputs["tokens_mask"]
-        continuous_segment = model_inputs["muq_embed"]
-        starts = model_inputs["muq_idx"]
-        prompt_pos = model_inputs["pos"]
+        prompt_tokens = processed_inputs["tokens"]
+        prompt_tokens_mask = processed_inputs["tokens_mask"]
+        continuous_segment = processed_inputs["muq_embed"]
+        starts = processed_inputs["muq_idx"]
+        prompt_pos = processed_inputs["pos"]
 
         frames = []
+        device = prompt_tokens.device
 
-        bs_size = 2 if cfg_scale != 1.0 else 1
-        self.model.setup_caches(bs_size)
-        with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+        # setup_caches is now handled in nodes.py to avoid redundant calls
+        
+        with torch.autocast(device_type=device.type, dtype=self.dtype):
             curr_token = self.model.generate_frame(
                 tokens=prompt_tokens,
                 tokens_mask=prompt_tokens_mask,
@@ -192,7 +232,8 @@ class HeartMuLaGenPipeline(Pipeline):
             if callback:
                 callback(1)
             curr_token, curr_token_mask = _pad_audio_token(curr_token)
-            with torch.autocast(device_type=self.device.type, dtype=self.dtype):
+            
+            with torch.autocast(device_type=device.type, dtype=self.dtype):
                 curr_token = self.model.generate_frame(
                     tokens=curr_token,
                     tokens_mask=curr_token_mask,
@@ -203,84 +244,65 @@ class HeartMuLaGenPipeline(Pipeline):
                     continuous_segments=None,
                     starts=None,
                 )
+            
             if torch.any(curr_token[0:1, :] >= self.config.audio_eos_id):
                 break
             frames.append(curr_token[0:1,])
+            
         frames = torch.stack(frames).permute(1, 2, 0).squeeze(0)
         return frames
+
+    @classmethod
+    def from_pretrained(
+        cls,
+        model_path: str,
+        dtype: torch.dtype,
+        compile_model: bool = False,
+        compile_backend: Optional[str] = None,
+        compile_mode: str = "default",
+    ):
+        model = HeartMuLa.from_pretrained(
+            model_path, dtype=dtype, quantization_config=None, low_cpu_mem_usage=True
+        )
+        
+        # Tokenizer and config are usually in the parent or same folder
+        # We'll expect them in the model folder or parent
+        base_dir = os.path.dirname(model_path)
+        
+        tokenizer_path = os.path.join(base_dir, "tokenizer.json")
+        if not os.path.exists(tokenizer_path):
+            tokenizer_path = os.path.join(model_path, "tokenizer.json")
+            
+        gen_config_path = os.path.join(base_dir, "gen_config.json")
+        if not os.path.exists(gen_config_path):
+            gen_config_path = os.path.join(model_path, "gen_config.json")
+
+        if not os.path.isfile(tokenizer_path):
+            raise FileNotFoundError(f"tokenizer.json not found at {tokenizer_path}")
+        if not os.path.isfile(gen_config_path):
+            raise FileNotFoundError(f"gen_config.json not found at {gen_config_path}")
+
+        tokenizer = Tokenizer.from_file(tokenizer_path)
+        gen_config = HeartMuLaGenConfig.from_file(gen_config_path)
+
+        return cls(model, tokenizer, gen_config, dtype, compile_model, compile_backend, compile_mode)
+
+class HeartCodecModel:
+    def __init__(
+        self,
+        audio_codec: HeartCodec,
+    ):
+        self.audio_codec = audio_codec
 
     def decode_tokens(self, frames, duration=29.76, callback=None):
         wav = self.audio_codec.detokenize(frames, duration=duration, callback=callback)
         return {"wav": wav}
 
-    def _forward(
-        self,
-        model_inputs: Dict[str, Any],
-        max_audio_length_ms: int,
-        temperature: float,
-        topk: int,
-        cfg_scale: float,
-    ):
-        frames = self.generate_tokens(model_inputs, max_audio_length_ms, temperature, topk, cfg_scale)
-        return self.decode_tokens(frames)
-
-    def postprocess(self, model_outputs: Dict[str, Any], save_path: str):
-        wav = model_outputs["wav"]
-        torchaudio.save(save_path, wav, 48000)
-
     @classmethod
     def from_pretrained(
         cls,
-        pretrained_path: str,
-        device: torch.device,
-        dtype: torch.dtype,
-        heartmula_path: Optional[str] = None,
-        heartcodec_path: Optional[str] = None,
+        codec_path: str,
     ):
-        # Resolve HeartCodec path
-        if heartcodec_path is None:
-            heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
-        
-        if os.path.exists(heartcodec_path):
-            heartcodec = HeartCodec.from_pretrained(heartcodec_path, device_map=device, dtype=torch.float32)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find checkpoint for HeartCodec at {heartcodec_path} but not found."
-            )
-
-        # Resolve HeartMuLa path
-        if heartmula_path is None:
-            # Fallback to scanning if not provided
-            for name in os.listdir(pretrained_path):
-                if name.startswith("HeartMuLa-oss-") and os.path.isdir(os.path.join(pretrained_path, name)):
-                    heartmula_path = os.path.join(pretrained_path, name)
-                    break
-
-        if heartmula_path is not None and os.path.exists(heartmula_path):
-            heartmula = HeartMuLa.from_pretrained(
-                heartmula_path, dtype=dtype, quantization_config=None, low_cpu_mem_usage=True
-            )
-        else:
-            raise FileNotFoundError(
-                f"Expected to find HeartMuLa checkpoint at {heartmula_path} (or by scanning 'HeartMuLa-oss-') in {pretrained_path} but not found."
-            )
-
-        if os.path.isfile(
-            vocab_path := os.path.join(pretrained_path, "tokenizer.json")
-        ):
-            tokenizer = Tokenizer.from_file(vocab_path)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find tokenizer.json for HeartMuLa at {vocab_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        if os.path.isfile(
-            gen_config_path := os.path.join(pretrained_path, "gen_config.json")
-        ):
-            gen_config = HeartMuLaGenConfig.from_file(gen_config_path)
-        else:
-            raise FileNotFoundError(
-                f"Expected to find gen_config.json for HeartMuLa at {gen_config_path} but not found. Please check your folder {pretrained_path}."
-            )
-
-        return cls(heartmula, heartcodec, None, tokenizer, gen_config, device, dtype)
+        # Codec is always float32 for detokenize in original code
+        audio_codec = HeartCodec.from_pretrained(codec_path, device_map="cpu", dtype=torch.float32)
+        return cls(audio_codec)

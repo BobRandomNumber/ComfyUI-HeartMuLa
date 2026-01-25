@@ -4,7 +4,7 @@ import { $el } from "../../scripts/ui.js";
 app.registerExtension({
     name: "HeartMuLa.FolderPicker",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name === "HeartMuLaLoader" || nodeData.name === "HeartMuLaTranscriptionLoader") {
+        if (nodeData.name === "HeartMuLaLoader" || nodeData.name === "HeartMuLaCodecLoader" || nodeData.name === "HeartMuLaTranscriptionLoader") {
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;

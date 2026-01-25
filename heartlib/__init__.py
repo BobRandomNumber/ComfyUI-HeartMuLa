@@ -1,7 +1,8 @@
-from .pipelines.music_generation import HeartMuLaGenPipeline
+from .pipelines.music_generation import HeartMuLaModel, HeartCodecModel
 from .pipelines.lyrics_transcription import HeartTranscriptorPipeline
 
 __all__ = [
-    "HeartMuLaGenPipeline",
+    "HeartMuLaModel",
+    "HeartCodecModel",
     "HeartTranscriptorPipeline"
 ]

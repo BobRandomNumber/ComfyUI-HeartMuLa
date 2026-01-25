@@ -4,7 +4,9 @@ import server
 from aiohttp import web
 from .nodes import (
     HeartMuLaLoader,
+    HeartMuLaCodecLoader,
     HeartMuLaMusicGenerator,
+    HeartMuLaAudioDecoder,
     HeartMuLaTranscriptionLoader,
     HeartMuLaLyricsTranscriber,
     HeartMuLaPostProcessor
@@ -61,7 +63,9 @@ async def browse_directory(request):
 
 NODE_CLASS_MAPPINGS = {
     "HeartMuLaLoader": HeartMuLaLoader,
+    "HeartMuLaCodecLoader": HeartMuLaCodecLoader,
     "HeartMuLaMusicGenerator": HeartMuLaMusicGenerator,
+    "HeartMuLaAudioDecoder": HeartMuLaAudioDecoder,
     "HeartMuLaTranscriptionLoader": HeartMuLaTranscriptionLoader,
     "HeartMuLaLyricsTranscriber": HeartMuLaLyricsTranscriber,
     "HeartMuLaPostProcessor": HeartMuLaPostProcessor,
@@ -69,7 +73,9 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "HeartMuLaLoader": "HeartMuLa Loader",
+    "HeartMuLaCodecLoader": "HeartMuLa Codec Loader",
     "HeartMuLaMusicGenerator": "HeartMuLa Music Generator",
+    "HeartMuLaAudioDecoder": "HeartMuLa Audio Decoder",
     "HeartMuLaTranscriptionLoader": "HeartMuLa Transcription Loader",
     "HeartMuLaLyricsTranscriber": "HeartMuLa Lyrics Transcriber",
     "HeartMuLaPostProcessor": "Audio Post-Processor",

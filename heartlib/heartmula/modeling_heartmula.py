@@ -178,7 +178,7 @@ class HeartMuLa(PreTrainedModel):
             _create_causal_mask(self.config.audio_num_codebooks, device),
         )
 
-    def generate_frame(
+    def generate_backbone_step(
         self,
         tokens: torch.Tensor,
         tokens_mask: torch.Tensor,
@@ -188,7 +188,7 @@ class HeartMuLa(PreTrainedModel):
         cfg_scale: float,
         continuous_segments: torch.Tensor = None,
         starts=None,
-    ) -> torch.Tensor:
+    ):
         b, s, _ = tokens.size()
 
         assert self.backbone.caches_are_enabled(), "backbone caches are not enabled"
@@ -238,10 +238,21 @@ class HeartMuLa(PreTrainedModel):
             )  # repeat to both branches to keep alignment
         else:
             c0_sample = sample_topk(c0_logits, topk, temperature)
+            
+        return c0_sample, last_h, embeds.dtype
 
+    def generate_decoder_step(
+        self,
+        c0_sample: torch.Tensor,
+        last_h: torch.Tensor,
+        dtype: torch.dtype,
+        temperature: float,
+        topk: int,
+        cfg_scale: float,
+    ):
+        b = c0_sample.shape[0]
         c0_embed = self._embed_audio(0, c0_sample)
-
-        self.decoder.reset_caches()
+        
         curr_h = torch.cat([last_h.unsqueeze(1), c0_embed], dim=1)
         curr_sample = c0_sample.clone()
         curr_pos = (
@@ -249,7 +260,7 @@ class HeartMuLa(PreTrainedModel):
             .unsqueeze(0)
             .repeat(curr_h.size(0), 1)
         )
-        curr_h = curr_h.to(embeds.dtype)
+        curr_h = curr_h.to(dtype)
         for i in range(1, self.config.audio_num_codebooks):
             curr_decoder_mask = _index_causal_mask(self.decoder_causal_mask, curr_pos)
             decoder_h = self.decoder(
@@ -270,8 +281,29 @@ class HeartMuLa(PreTrainedModel):
             curr_h = ci_embed
             curr_sample = torch.cat([curr_sample, ci_sample], dim=1)
             curr_pos = curr_pos[:, -1:] + 1
-
+            
         return curr_sample
+
+    def generate_frame(
+        self,
+        tokens: torch.Tensor,
+        tokens_mask: torch.Tensor,
+        input_pos: torch.Tensor,
+        temperature: float,
+        topk: int,
+        cfg_scale: float,
+        continuous_segments: torch.Tensor = None,
+        starts=None,
+    ) -> torch.Tensor:
+        c0_sample, last_h, dtype = self.generate_backbone_step(
+            tokens, tokens_mask, input_pos, temperature, topk, cfg_scale, continuous_segments, starts
+        )
+
+        self.decoder.reset_caches()
+        
+        return self.generate_decoder_step(
+            c0_sample, last_h, dtype, temperature, topk, cfg_scale
+        )
 
     def reset_caches(self):
         self.backbone.reset_caches()
