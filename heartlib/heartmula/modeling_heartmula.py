@@ -281,7 +281,7 @@ class HeartMuLa(PreTrainedModel):
             curr_h = ci_embed
             curr_sample = torch.cat([curr_sample, ci_sample], dim=1)
             curr_pos = curr_pos[:, -1:] + 1
-            
+
         return curr_sample
 
     def generate_frame(
