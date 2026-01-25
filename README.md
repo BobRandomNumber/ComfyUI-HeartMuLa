@@ -4,7 +4,7 @@ A ComfyUI extension for music generation and lyrics transcription based on the [
 
 ## Features
 - **Modular Architecture**: Separate LLM and Codec loaders for better memory management.
-- **Inference Optimization**: Integrated `torch.compile` support for Windows, utilizing block-wise compilation to maximize speed without graph breaks.
+- **Inference Optimization**: Integrated `torch.compile` support for Windows, utilizing block-wise compilation to maximize speed without graph breaks. **(Needs correct triton for system)**
 - **Text-to-Music**: Generate high-fidelity audio from lyrics and style tags.
 - **Lyrics Transcription**: Automatic speech-to-text with support for long-form audio.
 - **Folder Picker UI**: Custom folder browser for easy model path selection directly in the UI.
