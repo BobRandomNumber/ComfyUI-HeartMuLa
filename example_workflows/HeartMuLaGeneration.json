@@ -1,42 +1,9 @@
 {
   "id": "00000000-0000-0000-0000-000000000000",
   "revision": 0,
-  "last_node_id": 20,
-  "last_link_id": 15,
+  "last_node_id": 22,
+  "last_link_id": 18,
   "nodes": [
-    {
-      "id": 13,
-      "type": "HeartMuLaLoader",
-      "pos": [
-        2070,
-        430
-      ],
-      "size": [
-        430,
-        106
-      ],
-      "flags": {},
-      "order": 0,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "model",
-          "type": "HEARTMULA_MODEL",
-          "links": [
-            12
-          ]
-        }
-      ],
-      "properties": {
-        "Node name for S&R": "HeartMuLaLoader"
-      },
-      "widgets_values": [
-        "HeartMuLa",
-        "HeartMuLa-RL-oss-3B-20260123",
-        null
-      ]
-    },
     {
       "id": 15,
       "type": "HeartMuLaMusicGenerator",
@@ -49,7 +16,7 @@
         460
       ],
       "flags": {},
-      "order": 3,
+      "order": 4,
       "mode": 0,
       "inputs": [
         {
@@ -60,21 +27,23 @@
       ],
       "outputs": [
         {
-          "name": "AUDIO",
-          "type": "AUDIO",
+          "name": "tokens",
+          "type": "HEARTMULA_TOKENS",
           "links": [
-            13
+            16
           ]
         }
       ],
       "properties": {
+        "cnr_id": "ComfyUI-HeartMuLa",
+        "ver": "c7a2e2c888673a944ab71443f63e63e3f45f7ff0",
         "Node name for S&R": "HeartMuLaMusicGenerator"
       },
       "widgets_values": [
         "[Intro]\n\n[Verse]\nThe sun creeps in across the floor\nI hear the traffic outside the door\nThe coffee pot begins to hiss\nIt is another morning just like this\n\n[Prechorus]\nThe world keeps spinning round and round\nFeet are planted on the ground\nI find my rhythm in the sound\n\n[Chorus]\nEvery day the light returns\nEvery day the fire burns\nWe keep on walking down this street\nMoving to the same steady beat\nIt is the ordinary magic that we meet\n\n[Verse]\nThe hours tick deeply into noon\nChasing shadows,chasing the moon\nWork is done and the lights go low\nWatching the city start to glow\n\n[Bridge]\nIt is not always easy,not always bright\nSometimes we wrestle with the night\nBut we make it to the morning light\n\n[Chorus]\nEvery day the light returns\nEvery day the fire burns\nWe keep on walking down this street\nMoving to the same steady beat\n\n[Outro]\nJust another day\nEvery single day",
         "piano,happy",
         170,
-        587858617994342,
+        142498464748050,
         "randomize",
         1,
         50,
@@ -82,40 +51,88 @@
       ]
     },
     {
-      "id": 4,
-      "type": "PreviewAudio",
+      "id": 22,
+      "type": "HeartMuLaAudioDecoder",
       "pos": [
-        2960,
+        2970,
         430
       ],
       "size": [
-        300,
-        88
+        280,
+        46
       ],
       "flags": {},
-      "order": 4,
+      "order": 5,
       "mode": 0,
       "inputs": [
         {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 13
+          "name": "tokens",
+          "type": "HEARTMULA_TOKENS",
+          "link": 16
+        },
+        {
+          "name": "codec",
+          "type": "HEARTMULA_CODEC",
+          "link": 18
         }
       ],
-      "outputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            17
+          ]
+        }
+      ],
       "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.10.0",
-        "Node name for S&R": "PreviewAudio"
+        "cnr_id": "ComfyUI-HeartMuLa",
+        "ver": "c7a2e2c888673a944ab71443f63e63e3f45f7ff0",
+        "Node name for S&R": "HeartMuLaAudioDecoder"
       },
       "widgets_values": []
+    },
+    {
+      "id": 21,
+      "type": "HeartMuLaCodecLoader",
+      "pos": [
+        2080,
+        710
+      ],
+      "size": [
+        400,
+        106
+      ],
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "codec",
+          "type": "HEARTMULA_CODEC",
+          "links": [
+            18
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-HeartMuLa",
+        "ver": "c7a2e2c888673a944ab71443f63e63e3f45f7ff0",
+        "Node name for S&R": "HeartMuLaCodecLoader"
+      },
+      "widgets_values": [
+        "HeartMuLa",
+        "HeartCodec-oss-20260123",
+        null
+      ]
     },
     {
       "id": 20,
       "type": "MarkdownNote",
       "pos": [
         2970,
-        580
+        550
       ],
       "size": [
         280,
@@ -139,7 +156,7 @@
       "type": "HeartMuLaPostProcessor",
       "pos": [
         2970,
-        730
+        710
       ],
       "size": [
         275.87917175292966,
@@ -163,6 +180,8 @@
         }
       ],
       "properties": {
+        "cnr_id": "ComfyUI-HeartMuLa",
+        "ver": "c7a2e2c888673a944ab71443f63e63e3f45f7ff0",
         "Node name for S&R": "HeartMuLaPostProcessor"
       },
       "widgets_values": [
@@ -171,6 +190,73 @@
         80,
         18000,
         0
+      ]
+    },
+    {
+      "id": 4,
+      "type": "PreviewAudio",
+      "pos": [
+        3300,
+        430
+      ],
+      "size": [
+        290,
+        88
+      ],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 17
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.10.0",
+        "Node name for S&R": "PreviewAudio"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 13,
+      "type": "HeartMuLaLoader",
+      "pos": [
+        2070,
+        430
+      ],
+      "size": [
+        430,
+        178
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "model",
+          "type": "HEARTMULA_MODEL",
+          "links": [
+            12
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "ComfyUI-HeartMuLa",
+        "ver": "c7a2e2c888673a944ab71443f63e63e3f45f7ff0",
+        "Node name for S&R": "HeartMuLaLoader"
+      },
+      "widgets_values": [
+        "HeartMuLa",
+        "HeartMuLa-RL-oss-3B-20260123",
+        true,
+        "inductor",
+        "default",
+        null
       ]
     }
   ],
@@ -184,22 +270,38 @@
       "HEARTMULA_MODEL"
     ],
     [
-      13,
+      16,
       15,
+      0,
+      22,
+      0,
+      "HEARTMULA_TOKENS"
+    ],
+    [
+      17,
+      22,
       0,
       4,
       0,
       "AUDIO"
+    ],
+    [
+      18,
+      21,
+      0,
+      22,
+      1,
+      "HEARTMULA_CODEC"
     ]
   ],
   "groups": [],
   "config": {},
   "extra": {
     "ds": {
-      "scale": 0.90909090909091,
+      "scale": 0.9090909090909091,
       "offset": [
-        -1491.9029083505404,
-        -24.740529450370857
+        -1732.0063596111927,
+        -11.113212333892772
       ]
     },
     "workflowRendererVersion": "LG",
