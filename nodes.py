@@ -7,12 +7,20 @@ import comfy.utils
 import warnings
 import logging
 import math
+from comfy_api.latest import io, ui
 
 warnings.filterwarnings("ignore", category=UserWarning, module="transformers.pipelines.base")
 warnings.filterwarnings("ignore", message=".*Mismatch dtype between input and weight.*")
 warnings.filterwarnings("ignore", message=".*Key value caches are already setup.*")
 warnings.filterwarnings("ignore", message=".*chunk_length_s.*")
 logging.getLogger("transformers").setLevel(logging.ERROR)
+
+# Custom Types for V3
+HEARTMULA_MODEL = io.Custom("HEARTMULA_MODEL")
+HEARTMULA_CODEC = io.Custom("HEARTMULA_CODEC")
+HEARTMULA_TOKENS = io.Custom("HEARTMULA_TOKENS")
+HEARTMULA_TRANSCRIPTOR = io.Custom("HEARTMULA_TRANSCRIPTOR")
+AUDIO = io.Custom("AUDIO")
 
 def resolve_model_path(path):
     if os.path.isabs(path) and os.path.exists(path):
@@ -23,42 +31,33 @@ def resolve_model_path(path):
     if os.path.exists(m_path): return m_path
     return path
 
-class HeartMuLaLoader:
+class HeartMuLaLoader(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "base_path": ("STRING", {"default": "HeartMuLa", "multiline": False}),
-                "model_version": (
-                    [
-                        "HeartMuLa-RL-oss-3B-20260123",
-                        "HeartMuLa-oss-3B",
-                    ],
-                    {"default": "HeartMuLa-RL-oss-3B-20260123"}
-                ),
-                "torch_compile": ("BOOLEAN", {"default": False}),
-                "compile_backend": (["inductor", "cudagraphs", "eager"], {"default": "inductor"}),
-                "compile_mode": (["default", "reduce-overhead", "max-autotune"], {"default": "default"}),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaLoader",
+            display_name="HeartMuLa Loader",
+            category="HeartMuLa",
+            inputs=[
+                io.String.Input("base_path", default="HeartMuLa", multiline=False),
+                io.Combo.Input("model_version", options=[
+                    "HeartMuLa-oss-3B-happy-new-year",
+                    "HeartMuLa-RL-oss-3B-20260123",
+                    "HeartMuLa-oss-3B",
+                ], default="HeartMuLa-oss-3B-happy-new-year"),
+                io.Boolean.Input("torch_compile", default=False),
+                io.Combo.Input("compile_backend", options=["inductor", "cudagraphs", "eager"], default="inductor"),
+                io.Combo.Input("compile_mode", options=["default", "reduce-overhead", "max-autotune"], default="default"),
+            ],
+            outputs=[HEARTMULA_MODEL.Output(display_name="model")]
+        )
 
-    RETURN_TYPES = ("HEARTMULA_MODEL",)
-    RETURN_NAMES = ("model",)
-    FUNCTION = "load_model"
-    CATEGORY = "HeartMuLa"
-
-    def load_model(self, base_path, model_version, torch_compile, compile_backend, compile_mode):
+    @classmethod
+    def execute(cls, base_path, model_version, torch_compile, compile_backend, compile_mode) -> io.NodeOutput:
         from .heartlib.pipelines.music_generation import HeartMuLaModel
         resolved_base_path = resolve_model_path(base_path)
-        
-        if model_version == "HeartMuLa-oss-3B":
-            m_folder = "HeartMuLa-oss-3B"
-        elif model_version == "HeartMuLa-RL-oss-3B-20260123":
-            m_folder = "HeartMuLa-RL-oss-3B-20260123"
-        else:
-            raise ValueError(f"Unknown model version: {model_version}")
-
-        m_path = os.path.join(resolved_base_path, m_folder)
+        m_path = os.path.join(resolved_base_path, model_version)
+            
         if not os.path.exists(m_path):
              raise FileNotFoundError(f"Model folder not found at: {m_path}")
 
@@ -73,32 +72,29 @@ class HeartMuLaLoader:
                 compile_backend=compile_backend,
                 compile_mode=compile_mode
             )
-            return (model,)
+            return io.NodeOutput(model)
         except Exception as e:
             raise RuntimeError(f"Failed to load HeartMuLa model: {e}")
 
-class HeartMuLaCodecLoader:
+class HeartMuLaCodecLoader(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "base_path": ("STRING", {"default": "HeartMuLa", "multiline": False}),
-                "codec_version": (
-                    [
-                        "HeartCodec-oss-20260123",
-                        "HeartCodec-oss",
-                    ],
-                    {"default": "HeartCodec-oss-20260123"}
-                ),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaCodecLoader",
+            display_name="HeartMuLa Codec Loader",
+            category="HeartMuLa",
+            inputs=[
+                io.String.Input("base_path", default="HeartMuLa", multiline=False),
+                io.Combo.Input("codec_version", options=[
+                    "HeartCodec-oss-20260123",
+                    "HeartCodec-oss",
+                ], default="HeartCodec-oss-20260123"),
+            ],
+            outputs=[HEARTMULA_CODEC.Output(display_name="codec")]
+        )
 
-    RETURN_TYPES = ("HEARTMULA_CODEC",)
-    RETURN_NAMES = ("codec",)
-    FUNCTION = "load_codec"
-    CATEGORY = "HeartMuLa"
-
-    def load_codec(self, base_path, codec_version):
+    @classmethod
+    def execute(cls, base_path, codec_version) -> io.NodeOutput:
         from .heartlib.pipelines.music_generation import HeartCodecModel
         resolved_base_path = resolve_model_path(base_path)
         c_path = os.path.join(resolved_base_path, codec_version)
@@ -109,32 +105,32 @@ class HeartMuLaCodecLoader:
         print(f"Loading HeartCodec: {codec_version}...")
         try:
             codec = HeartCodecModel.from_pretrained(c_path)
-            return (codec,)
+            return io.NodeOutput(codec)
         except Exception as e:
             raise RuntimeError(f"Failed to load HeartCodec: {e}")
 
-class HeartMuLaMusicGenerator:
+class HeartMuLaMusicGenerator(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "model": ("HEARTMULA_MODEL",),
-                "lyrics": ("STRING", {"multiline": True, "default": ""}),
-                "tags": ("STRING", {"multiline": True, "default": ""}),
-                "duration_seconds": ("FLOAT", {"default": 30.0, "min": 1.0, "max": 300.0}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
-                "temperature": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 2.0}),
-                "top_k": ("INT", {"default": 50, "min": 1, "max": 1000}),
-                "cfg_scale": ("FLOAT", {"default": 1.5, "min": 0.1, "max": 5.0}),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaMusicGenerator",
+            display_name="HeartMuLa Music Generator",
+            category="HeartMuLa",
+            inputs=[
+                HEARTMULA_MODEL.Input("model"),
+                io.String.Input("lyrics", multiline=True, default=""),
+                io.String.Input("tags", multiline=True, default=""),
+                io.Float.Input("duration_seconds", default=30.0, min=1.0, max=300.0),
+                io.Int.Input("seed", default=0, min=0, max=0xffffffffffffffff),
+                io.Float.Input("temperature", default=1.0, min=0.1, max=2.0),
+                io.Int.Input("top_k", default=50, min=1, max=1000),
+                io.Float.Input("cfg_scale", default=1.5, min=0.1, max=5.0),
+            ],
+            outputs=[HEARTMULA_TOKENS.Output(display_name="tokens")]
+        )
 
-    RETURN_TYPES = ("HEARTMULA_TOKENS",)
-    RETURN_NAMES = ("tokens",)
-    FUNCTION = "generate"
-    CATEGORY = "HeartMuLa"
-
-    def generate(self, model, lyrics, tags, duration_seconds, seed, temperature, top_k, cfg_scale):
+    @classmethod
+    def execute(cls, model, lyrics, tags, duration_seconds, seed, temperature, top_k, cfg_scale) -> io.NodeOutput:
         torch.manual_seed(seed)
         try:
             torch.set_float32_matmul_precision('high')
@@ -154,17 +150,16 @@ class HeartMuLaMusicGenerator:
 
             print(f"Moving HeartMuLa Generator to {device}...")
             model.model.to(device)
-            model.ensure_compiled()
+            torch.cuda.synchronize()
             
+            model.setup_caches(max_batch_size=processed_inputs["tokens"].shape[0])
+            model.ensure_compiled()
+
             for k, v in processed_inputs.items():
                 if isinstance(v, torch.Tensor):
                     processed_inputs[k] = v.to(device)
                     if v.is_floating_point():
                          processed_inputs[k] = processed_inputs[k].to(dtype=model.dtype)
-
-            batch_size = processed_inputs["tokens"].shape[0]
-            # Use the new safe wrapper that avoids redundant setup warnings
-            model.setup_caches(max_batch_size=batch_size)
 
             gen_steps = int(duration_seconds * 1000 // 80)
             pbar = comfy.utils.ProgressBar(gen_steps)
@@ -183,27 +178,28 @@ class HeartMuLaMusicGenerator:
                 )
             
             torch.cuda.synchronize()
-            return (tokens,)
+            return io.NodeOutput(tokens)
         finally:
             model.model.to("cpu")
             torch.cuda.synchronize()
             comfy.model_management.soft_empty_cache()
 
-class HeartMuLaAudioDecoder:
+class HeartMuLaAudioDecoder(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "tokens": ("HEARTMULA_TOKENS",),
-                "codec": ("HEARTMULA_CODEC",),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaAudioDecoder",
+            display_name="HeartMuLa Audio Decoder",
+            category="HeartMuLa",
+            inputs=[
+                HEARTMULA_TOKENS.Input("tokens"),
+                HEARTMULA_CODEC.Input("codec"),
+            ],
+            outputs=[AUDIO.Output()]
+        )
 
-    RETURN_TYPES = ("AUDIO",)
-    FUNCTION = "decode"
-    CATEGORY = "HeartMuLa"
-
-    def decode(self, tokens, codec):
+    @classmethod
+    def execute(cls, tokens, codec) -> io.NodeOutput:
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()
         device = comfy.model_management.get_torch_device()
@@ -211,22 +207,15 @@ class HeartMuLaAudioDecoder:
         try:
             if tokens is None or tokens.numel() == 0:
                 print("Warning: No tokens generated. Skipping decode.")
-                return ({"waveform": torch.zeros(1, 1, 48000), "sample_rate": 48000},)
+                return io.NodeOutput({"waveform": torch.zeros(1, 1, 48000), "sample_rate": 48000})
 
             print(f"Moving HeartCodec to {device}...")
             codec.audio_codec.to(device)
-            
-            # Ensure tokens are on the correct device
             tokens = tokens.to(device)
-
-            # Robustness: The codec expects indices in range [0, 8191].
-            # Sometimes the LLM predicts an EOS token (8193) or other high IDs.
-            # We clip these to the maximum valid codebook index to prevent out-of-bounds crashes.
             tokens = torch.clamp(tokens, 0, 8191)
 
-            # ProgressBar for decoding
             codes_len = tokens.shape[-1]
-            actual_decode_chunks = (codes_len - 104 + 319) // 320 # Approx
+            actual_decode_chunks = (codes_len - 104 + 319) // 320
             pbar = comfy.utils.ProgressBar(max(1, actual_decode_chunks * 10))
             
             def decode_callback(step):
@@ -238,29 +227,29 @@ class HeartMuLaAudioDecoder:
             torch.cuda.synchronize()
             wav = outputs["wav"]
             if wav.dim() == 1: wav = wav.unsqueeze(0)
-            wav = wav.unsqueeze(0) # ComfyUI AUDIO format: [B, C, T]
+            wav = wav.unsqueeze(0)
             
-            return ({"waveform": wav.cpu(), "sample_rate": 48000},)
+            return io.NodeOutput({"waveform": wav.cpu(), "sample_rate": 48000})
         finally:
             codec.audio_codec.to("cpu")
             torch.cuda.synchronize()
             comfy.model_management.soft_empty_cache()
 
-class HeartMuLaTranscriptionLoader:
+class HeartMuLaTranscriptionLoader(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "base_path": ("STRING", {"default": "HeartMuLa", "multiline": False}),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaTranscriptionLoader",
+            display_name="HeartMuLa Transcription Loader",
+            category="HeartMuLa",
+            inputs=[
+                io.String.Input("base_path", default="HeartMuLa", multiline=False),
+            ],
+            outputs=[HEARTMULA_TRANSCRIPTOR.Output(display_name="transcriptor")]
+        )
 
-    RETURN_TYPES = ("HEARTMULA_TRANSCRIPTOR",)
-    RETURN_NAMES = ("transcriptor",)
-    FUNCTION = "load_model"
-    CATEGORY = "HeartMuLa"
-
-    def load_model(self, base_path):
+    @classmethod
+    def execute(cls, base_path) -> io.NodeOutput:
         from .heartlib.pipelines.lyrics_transcription import HeartTranscriptorPipeline
         target_path = resolve_model_path(base_path)
         if not os.path.exists(target_path):
@@ -270,31 +259,32 @@ class HeartMuLaTranscriptionLoader:
         print(f"Loading HeartMuLa Transcriptor from {target_path}...")
         try:
             pipeline = HeartTranscriptorPipeline.from_pretrained(target_path, device=device, dtype=dtype)
-            return (pipeline,)
+            return io.NodeOutput(pipeline)
         except Exception as e:
             raise RuntimeError(f"Failed to load HeartMuLa Transcriptor: {e}")
 
-class HeartMuLaLyricsTranscriber:
+class HeartMuLaLyricsTranscriber(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "transcriptor": ("HEARTMULA_TRANSCRIPTOR",),
-                "audio": ("AUDIO",),
-                "max_new_tokens": ("INT", {"default": 256, "min": 1, "max": 445, "step": 1}),
-                "num_beams": ("INT", {"default": 2, "min": 1, "max": 5, "step": 1}),
-                "condition_on_prev_tokens": ("BOOLEAN", {"default": False}),
-                "logprob_threshold": ("FLOAT", {"default": -1.0, "min": -20.0, "max": 0.0, "step": 0.1}),
-                "no_speech_threshold": ("FLOAT", {"default": 0.4, "min": 0.0, "max": 1.0, "step": 0.01}),
-                "temperature": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.1}),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaLyricsTranscriber",
+            display_name="HeartMuLa Lyrics Transcriber",
+            category="HeartMuLa",
+            inputs=[
+                HEARTMULA_TRANSCRIPTOR.Input("transcriptor"),
+                AUDIO.Input("audio"),
+                io.Int.Input("max_new_tokens", default=256, min=1, max=445, step=1),
+                io.Int.Input("num_beams", default=2, min=1, max=5, step=1),
+                io.Boolean.Input("condition_on_prev_tokens", default=False),
+                io.Float.Input("logprob_threshold", default=-1.0, min=-20.0, max=0.0, step=0.1),
+                io.Float.Input("no_speech_threshold", default=0.4, min=0.0, max=1.0, step=0.01),
+                io.Float.Input("temperature", default=0.0, min=0.0, max=1.0, step=0.1),
+            ],
+            outputs=[io.String.Output()]
+        )
 
-    RETURN_TYPES = ("STRING",)
-    FUNCTION = "transcribe"
-    CATEGORY = "HeartMuLa"
-
-    def transcribe(self, transcriptor, audio, max_new_tokens, num_beams, condition_on_prev_tokens, logprob_threshold, no_speech_threshold, temperature):
+    @classmethod
+    def execute(cls, transcriptor, audio, max_new_tokens, num_beams, condition_on_prev_tokens, logprob_threshold, no_speech_threshold, temperature) -> io.NodeOutput:
         waveform = audio["waveform"]
         sample_rate = audio["sample_rate"]
         wav = waveform.cpu()
@@ -323,31 +313,32 @@ class HeartMuLaLyricsTranscriber:
         transcriptor.model.to(transcriptor.device)
         try:
             result = transcriptor({"raw": wav_np, "sampling_rate": sample_rate}, generate_kwargs=generate_kwargs)
-            return (result["text"],)
+            return io.NodeOutput(result["text"])
         finally:
             print("Moving Whisper to CPU...")
             transcriptor.model.to("cpu")
             comfy.model_management.soft_empty_cache()
 
-class HeartMuLaPostProcessor:
+class HeartMuLaPostProcessor(io.ComfyNode):
     @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "audio": ("AUDIO",),
-                "normalize": ("BOOLEAN", {"default": True}),
-                "stereo_width": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 2.0, "step": 0.05}),
-                "high_pass": ("INT", {"default": 80, "min": 0, "max": 1000, "step": 1}),
-                "low_pass": ("INT", {"default": 18000, "min": 0, "max": 24000, "step": 100}),
-                "gain_db": ("FLOAT", {"default": 0.0, "min": -20.0, "max": 20.0, "step": 0.1}),
-            }
-        }
+    def define_schema(cls) -> io.Schema:
+        return io.Schema(
+            node_id="HeartMuLaPostProcessor",
+            display_name="Audio Post-Processor",
+            category="HeartMuLa",
+            inputs=[
+                AUDIO.Input("audio"),
+                io.Boolean.Input("normalize", default=True),
+                io.Float.Input("stereo_width", default=1.0, min=0.0, max=2.0, step=0.05),
+                io.Int.Input("high_pass", default=80, min=0, max=1000, step=1),
+                io.Int.Input("low_pass", default=18000, min=0, max=24000, step=100),
+                io.Float.Input("gain_db", default=0.0, min=-20.0, max=20.0, step=0.1),
+            ],
+            outputs=[AUDIO.Output()]
+        )
 
-    RETURN_TYPES = ("AUDIO",)
-    FUNCTION = "process"
-    CATEGORY = "HeartMuLa"
-
-    def process(self, audio, normalize, stereo_width, high_pass, low_pass, gain_db):
+    @classmethod
+    def execute(cls, audio, normalize, stereo_width, high_pass, low_pass, gain_db) -> io.NodeOutput:
         waveform = audio["waveform"].clone()
         sample_rate = audio["sample_rate"]
         device = waveform.device
@@ -368,24 +359,4 @@ class HeartMuLaPostProcessor:
         if normalize:
             max_val = torch.abs(waveform).max()
             if max_val > 1e-6: waveform = waveform / max_val
-        return ({"waveform": waveform.to(device), "sample_rate": sample_rate},)
-
-NODE_CLASS_MAPPINGS = {
-    "HeartMuLaLoader": HeartMuLaLoader,
-    "HeartMuLaCodecLoader": HeartMuLaCodecLoader,
-    "HeartMuLaMusicGenerator": HeartMuLaMusicGenerator,
-    "HeartMuLaAudioDecoder": HeartMuLaAudioDecoder,
-    "HeartMuLaTranscriptionLoader": HeartMuLaTranscriptionLoader,
-    "HeartMuLaLyricsTranscriber": HeartMuLaLyricsTranscriber,
-    "HeartMuLaPostProcessor": HeartMuLaPostProcessor
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "HeartMuLaLoader": "HeartMuLa Loader",
-    "HeartMuLaCodecLoader": "HeartMuLa Codec Loader",
-    "HeartMuLaMusicGenerator": "HeartMuLa Music Generator",
-    "HeartMuLaAudioDecoder": "HeartMuLa Audio Decoder",
-    "HeartMuLaTranscriptionLoader": "HeartMuLa Transcription Loader",
-    "HeartMuLaLyricsTranscriber": "HeartMuLa Lyrics Transcriber",
-    "HeartMuLaPostProcessor": "Audio Post-Processor"
-}
+        return io.NodeOutput({"waveform": waveform.to(device), "sample_rate": sample_rate})

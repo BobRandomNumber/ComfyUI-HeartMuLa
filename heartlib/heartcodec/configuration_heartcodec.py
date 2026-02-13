@@ -7,7 +7,6 @@ class HeartCodecConfig(PretrainedConfig):
 
     def __init__(
         self,
-        # config for rvq
         dim: int = 512,
         codebook_size: int = 8192,
         decay: float = 0.9,
@@ -16,7 +15,6 @@ class HeartCodecConfig(PretrainedConfig):
         use_cosine_sim: bool = False,
         codebook_dim: int = 32,
         num_quantizers: int = 8,
-        # config for diffusion transformer
         attention_head_dim: int = 64,
         in_channels: int = 1024,
         norm_type: str = "ada_norm_single",
@@ -24,7 +22,6 @@ class HeartCodecConfig(PretrainedConfig):
         num_layers: int = 24,
         num_layers_2: int = 6,
         out_channels: int = 256,
-        # config for sq codec
         num_bands: int = 1,
         sample_rate: int = 48000,
         causal: bool = True,

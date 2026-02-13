@@ -10,15 +10,12 @@ from dataclasses import dataclass
 from tqdm import tqdm
 import torchaudio
 import json
-# Removed BitsAndBytesConfig import
 
-# --- Global Torch Compile Configuration ---
 torch._dynamo.config.suppress_errors = True
 torch._dynamo.config.cache_size_limit = 64
 torch._dynamo.config.recompile_limit = 128
 torch._dynamo.config.force_parameter_static_shapes = False
 
-# Inductor stability settings for Windows
 try:
     import torch._inductor.config as inductor_config
     inductor_config.fallback_random = True
@@ -61,7 +58,7 @@ class HeartMuLaModel:
         compile_backend: Optional[str] = None,
         compile_mode: str = "default",
     ):
-        self.model = model.to(dtype) # Ensure all parameters are cast
+        self.model = model.to(dtype)
         self.text_tokenizer = text_tokenizer
         self.config = config
         self.dtype = dtype
@@ -72,14 +69,12 @@ class HeartMuLaModel:
         self._compilation_done = False
         self._cache_bs = 0
 
-        self._parallel_number = 8 + 1 # Default for 3B
+        self._parallel_number = 8 + 1
         if hasattr(model.config, "audio_num_codebooks"):
             self._parallel_number = model.config.audio_num_codebooks + 1
 
     def setup_caches(self, max_batch_size: int):
-        """Setup or reset caches based on current batch size."""
         if self._cache_bs != max_batch_size:
-            # We must filter the torchtune warning because it's noisy and we handle it
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*Key value caches are already setup.*")
                 self.model.setup_caches(max_batch_size=max_batch_size)
@@ -194,8 +189,6 @@ class HeartMuLaModel:
         frames = []
         device = prompt_tokens.device
 
-        # setup_caches is now handled in nodes.py to avoid redundant calls
-        
         with torch.autocast(device_type=device.type, dtype=self.dtype):
             curr_token = self.model.generate_frame(
                 tokens=prompt_tokens,
@@ -262,11 +255,13 @@ class HeartMuLaModel:
         compile_mode: str = "default",
     ):
         model = HeartMuLa.from_pretrained(
-            model_path, dtype=dtype, quantization_config=None, low_cpu_mem_usage=True
+            model_path, 
+            dtype=dtype, 
+            quantization_config=None, 
+            low_cpu_mem_usage=True,
+            ignore_mismatched_sizes=True
         )
         
-        # Tokenizer and config are usually in the parent or same folder
-        # We'll expect them in the model folder or parent
         base_dir = os.path.dirname(model_path)
         
         tokenizer_path = os.path.join(base_dir, "tokenizer.json")
@@ -303,6 +298,10 @@ class HeartCodecModel:
         cls,
         codec_path: str,
     ):
-        # Codec is always float32 for detokenize in original code
-        audio_codec = HeartCodec.from_pretrained(codec_path, device_map="cpu", dtype=torch.float32)
+        audio_codec = HeartCodec.from_pretrained(
+            codec_path, 
+            device_map="cpu", 
+            dtype=torch.float32,
+            ignore_mismatched_sizes=True
+        )
         return cls(audio_codec)

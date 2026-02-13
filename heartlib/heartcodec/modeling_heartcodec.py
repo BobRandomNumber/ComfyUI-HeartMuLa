@@ -78,12 +78,11 @@ class HeartCodec(PreTrainedModel):
         hop_samples = min_samples // 93 * 80
         ovlp_samples = min_samples - hop_samples
         ovlp_frames = ovlp_samples * 2
-        codes_len = codes.shape[-1]  #
+        codes_len = codes.shape[-1]
         target_len = int(
             (codes_len - first_latent_codes_length) / 12.5 * self.sample_rate
         )
 
-        # code repeat
         if codes_len < min_samples:
             while codes.shape[-1] < min_samples:
                 codes = torch.cat([codes, codes], -1)
@@ -119,7 +118,7 @@ class HeartCodec(PreTrainedModel):
                 latent_list.append(latents)
             else:
                 true_latent = latent_list[-1][:, -ovlp_frames:, :]
-                len_add_to_latent = latent_length - true_latent.shape[1]  #
+                len_add_to_latent = latent_length - true_latent.shape[1]
                 incontext_length = true_latent.shape[1]
                 true_latent = torch.cat(
                     [
@@ -147,7 +146,6 @@ class HeartCodec(PreTrainedModel):
                 )
                 latent_list.append(latents)
 
-        # latent_list = [l.float() for l in latent_list] # This was the cause of the crash
         latent_list[0] = latent_list[0][:, first_latent_length:, :]
         min_samples = int(duration * self.sample_rate)
         hop_samples = min_samples // 93 * 80
@@ -166,9 +164,9 @@ class HeartCodec(PreTrainedModel):
             )
             cur_output = (
                 self.scalar_model.decode(latent.transpose(1, 2)).squeeze(0).squeeze(1)
-            )  # 1 512 256
+            )
 
-            cur_output = cur_output[:, 0:min_samples].detach().cpu()  # B, T
+            cur_output = cur_output[:, 0:min_samples].detach().cpu()
             if cur_output.dim() == 3:
                 cur_output = cur_output[0]
 

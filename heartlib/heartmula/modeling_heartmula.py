@@ -69,7 +69,7 @@ def llama3_2_400M() -> torchtune.modules.transformer.TransformerDecoder:
         norm_eps=1e-5,
         rope_base=500_000,
         scale_factor=32,
-    )  # 减少了num_heads和num_kv_heads之间的倍速，提升了精确度，但降低了效率
+    )
 
 
 FLAVORS = {
@@ -98,7 +98,7 @@ def _index_causal_mask(mask: torch.Tensor, input_pos: torch.Tensor):
 
 def _multinomial_sample_one_no_sync(
     probs,
-):  # Does multinomial sampling without a cuda synchronization
+):
     q = torch.empty_like(probs).exponential_(1)
     return torch.argmax(probs / q, dim=-1, keepdim=True).to(dtype=torch.int)
 
@@ -161,13 +161,24 @@ class HeartMuLa(PreTrainedModel):
         except RuntimeError:
             pass
 
-        with device:
-            self.backbone.setup_caches(max_batch_size, dtype)
-            self.decoder.setup_caches(
-                max_batch_size,
-                dtype,
-                decoder_max_seq_len=self.config.audio_num_codebooks,
-            )
+        def recursive_rope_init(module, target_device):
+            if hasattr(module, "rope_init") and callable(module.rope_init):
+                try:
+                    module.rope_init()
+                    module.to(target_device)
+                except Exception as e:
+                    print(f"Warning: rope_init failed for {type(module)}: {e}")
+            for child in module.children():
+                recursive_rope_init(child, target_device)
+
+        recursive_rope_init(self, device)
+
+        self.backbone.setup_caches(max_batch_size, dtype)
+        self.decoder.setup_caches(
+            max_batch_size,
+            dtype,
+            decoder_max_seq_len=self.config.audio_num_codebooks,
+        )
 
         self.register_buffer(
             "backbone_causal_mask",
@@ -177,6 +188,8 @@ class HeartMuLa(PreTrainedModel):
             "decoder_causal_mask",
             _create_causal_mask(self.config.audio_num_codebooks, device),
         )
+        
+        self.to(device)
 
     def generate_backbone_step(
         self,
@@ -206,7 +219,7 @@ class HeartMuLa(PreTrainedModel):
 
         embeds = self._embed_tokens(tokens, uncond_mask=uncond_mask)
         masked_embeds = embeds * tokens_mask.unsqueeze(-1)
-        h = masked_embeds.sum(dim=2, dtype=embeds.dtype)  # merge
+        h = masked_embeds.sum(dim=2, dtype=embeds.dtype)
         if continuous_segments is not None:
             continuous_segments = continuous_segments.to(dtype=self.muq_linear.weight.dtype)
             continuous_segments = self.muq_linear(continuous_segments)
@@ -219,13 +232,17 @@ class HeartMuLa(PreTrainedModel):
                     mask_expanded, uncond_embed, continuous_segments
                 )
             batch_indices = torch.arange(h.shape[0], device=h.device)
+            if isinstance(starts, list):
+                starts = torch.tensor(starts, device=h.device)
+            elif isinstance(starts, torch.Tensor):
+                starts = starts.to(h.device)
             h[batch_indices, starts] = continuous_segments
         
         h = h.to(dtype=self.text_embeddings.weight.dtype)
         h = self.backbone(h, input_pos=input_pos, mask=curr_backbone_mask)
 
-        last_h = h[:, -1, :]  # the last frame
-        c0_logits = self.codebook0_head(last_h)  # only predict the audio part
+        last_h = h[:, -1, :]
+        c0_logits = self.codebook0_head(last_h)
 
         if cfg_scale > 1.0 and b > 1 and (b % 2 == 0):
             actual_B = b // 2
@@ -233,9 +250,7 @@ class HeartMuLa(PreTrainedModel):
             uncond_logits = c0_logits[actual_B:, :]
             guided_logits = uncond_logits + (cond_logits - uncond_logits) * cfg_scale
             c0_sample = sample_topk(guided_logits, topk, temperature)
-            c0_sample = c0_sample.repeat(
-                2, 1
-            )  # repeat to both branches to keep alignment
+            c0_sample = c0_sample.repeat(2, 1)
         else:
             c0_sample = sample_topk(c0_logits, topk, temperature)
             
@@ -295,6 +310,23 @@ class HeartMuLa(PreTrainedModel):
         continuous_segments: torch.Tensor = None,
         starts=None,
     ) -> torch.Tensor:
+        if self.backbone_causal_mask.device != tokens.device:
+            self.backbone_causal_mask = self.backbone_causal_mask.to(tokens.device)
+        if self.decoder_causal_mask.device != tokens.device:
+            self.decoder_causal_mask = self.decoder_causal_mask.to(tokens.device)
+
+        import itertools
+        for module in itertools.chain(self.backbone.modules(), self.decoder.modules()):
+            if hasattr(module, "rope_init") and callable(module.rope_init):
+                try:
+                    module.rope_init()
+                except:
+                    pass
+            
+            if hasattr(module, "cache") and isinstance(module.cache, torch.Tensor):
+                if module.cache.device != tokens.device:
+                    module.cache = module.cache.to(tokens.device)
+
         c0_sample, last_h, dtype = self.generate_backbone_step(
             tokens, tokens_mask, input_pos, temperature, topk, cfg_scale, continuous_segments, starts
         )
@@ -310,7 +342,6 @@ class HeartMuLa(PreTrainedModel):
         self.decoder.reset_caches()
 
     def _embed_local_audio(self, tokens):
-        """the token from 0-30"""
         audio_tokens = tokens + (
             self.config.audio_vocab_size
             * torch.arange(self.config.audio_num_codebooks - 1, device=tokens.device)

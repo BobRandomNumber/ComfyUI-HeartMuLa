@@ -1,8 +1,12 @@
 # ComfyUI-HeartMuLa
 
+*Updated Feb 13, 2026: Migrated to V3 Schema & Added Happy New Year 3B Model Support*
+
 A ComfyUI extension for music generation and lyrics transcription based on the [HeartMuLa model family](https://huggingface.co/HeartMuLa) and [heartlib source code](https://github.com/HeartMuLa/heartlib).
 
 ## Features
+- **V3 Node Schema**: Fully migrated to the modern ComfyUI V3 architecture for improved stability and future-proofing.
+- **Latest Model Support**: Integrated the new **HeartMuLa-oss-3B-happy-new-year** model for state-of-the-art music generation.
 - **Modular Architecture**: Separate LLM and Codec loaders for better memory management.
 - **Inference Optimization**: Integrated `torch.compile` support for Windows, utilizing block-wise compilation to maximize speed without graph breaks. **(Needs correct triton for system)**
 - **Text-to-Music**: Generate high-fidelity audio from lyrics and style tags.
@@ -43,6 +47,10 @@ Place these files directly in the root of the `HeartMuLa/` folder:
 ### 2. Model Directories
 Download the repositories below as subfolders inside the `HeartMuLa/` directory.
 
+#### Happy New Year Edition (3B-happy-new-year) - ⭐ RECOMMENDED
+- **Model**: [HeartMuLa-oss-3B-happy-new-year](https://huggingface.co/HeartMuLa/HeartMuLa-oss-3B-happy-new-year/tree/main)
+- **Codec**: [HeartCodec-oss-20260123](https://huggingface.co/HeartMuLa/HeartCodec-oss-20260123/tree/main)
+
 #### For Standard Generation (oss-3B)
 - **Model**: [HeartMuLa-oss-3B](https://huggingface.co/HeartMuLa/HeartMuLa-oss-3B/tree/main)
 - **Codec**: [HeartCodec-oss](https://huggingface.co/HeartMuLa/HeartCodec-oss/tree/main)
@@ -59,6 +67,7 @@ Download the repositories below as subfolders inside the `HeartMuLa/` directory.
 ComfyUI/models/HeartMuLa/
 ├── gen_config.json
 ├── tokenizer.json
+├── HeartMuLa-oss-3B-happy-new-year/
 ├── HeartMuLa-oss-3B/
 ├── HeartCodec-oss/
 ├── HeartMuLa-RL-oss-3B-20260123/
@@ -71,7 +80,7 @@ ComfyUI/models/HeartMuLa/
 ### 1. HeartMuLa Model Loader
 Loads the LLM backbone for music generation.
 - **base_path**: Folder containing the model weights. Use the integrated 📁 browser button.
-- **model_version**: Select which model version to use (Standard or RL-Tuned).
+- **model_version**: Select which model version to use.
 - **torch_compile**: Enable/Disable `torch.compile` optimization.
 - **compile_backend**: Choose the compiler backend (Default: `inductor`).
 - **compile_mode**: Choose the optimization level (`default` is best for compatibility).

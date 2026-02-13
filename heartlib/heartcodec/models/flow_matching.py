@@ -9,7 +9,6 @@ from .transformer import LlamaTransformer
 class FlowMatching(nn.Module):
     def __init__(
         self,
-        # rvq stuff
         dim: int = 512,
         codebook_size: int = 8192,
         decay: float = 0.9,
@@ -18,7 +17,6 @@ class FlowMatching(nn.Module):
         use_cosine_sim: bool = False,
         codebook_dim: int = 32,
         num_quantizers: int = 8,
-        # dit backbone stuff
         attention_head_dim: int = 64,
         in_channels: int = 1024,
         norm_type: str = "ada_norm_single",
@@ -68,29 +66,24 @@ class FlowMatching(nn.Module):
     ):
         device = true_latents.device
         dtype = true_latents.dtype
-        # codes_bestrq_middle, codes_bestrq_last = codes
         codes_bestrq_emb = codes[0]
 
         batch_size = codes_bestrq_emb.shape[0]
         self.vq_embed.eval()
         
-        # Cast output of embeddings to the correct dtype
         quantized_feature_emb = self.vq_embed.get_output_from_indices(
             codes_bestrq_emb.transpose(1, 2)
         ).to(dtype)
         
-        # Cast output of linear layer to the correct dtype
-        quantized_feature_emb = self.cond_feature_emb(quantized_feature_emb).to(dtype)  # b t 512
-        # assert 1==2
+        quantized_feature_emb = self.cond_feature_emb(quantized_feature_emb).to(dtype)
         
-        # Ensure input to interpolate is dtype, and cast output to dtype
         quantized_feature_emb = F.interpolate(
             quantized_feature_emb.permute(0, 2, 1).to(dtype),
             scale_factor=2,
             mode="nearest"
         ).permute(0, 2, 1).to(dtype)
 
-        num_frames = quantized_feature_emb.shape[1]  #
+        num_frames = quantized_feature_emb.shape[1]
         latents = torch.randn(
             (batch_size, num_frames, self.latent_dim), device=device, dtype=dtype
         )
@@ -101,7 +94,6 @@ class FlowMatching(nn.Module):
         if scenario == "other_seg":
             latent_masks[:, 0:incontext_length] = 1
 
-        # Cast zero_cond_embedding1 to the correct dtype before use
         zero_cond_embedding1_casted = self.zero_cond_embedding1.to(dtype)
         quantized_feature_emb = (latent_masks > 0.5).unsqueeze(
             -1
@@ -136,7 +128,7 @@ class FlowMatching(nn.Module):
 
         latents[:, 0:incontext_length, :] = incontext_latents[
             :, 0:incontext_length, :
-        ]  # B, T, dim
+        ]
         return latents
 
     def solve_euler(self, x, incontext_x, incontext_length, t_span, mu, guidance_scale, dtype, disable_progress=False, callback=None):
@@ -152,8 +144,6 @@ class FlowMatching(nn.Module):
         t, _, dt = t_span[0], t_span[-1], t_span[1] - t_span[0]
         noise = x.clone()
 
-        # I am storing this because I can later plot it by putting a debugger here and saving it to a file
-        # Or in future might add like a return_all_steps flag
         sol = []
         for step in tqdm(range(1, len(t_span)), disable=disable_progress):
             if callback:
