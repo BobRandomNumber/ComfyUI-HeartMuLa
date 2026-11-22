@@ -1,5 +1,5 @@
 import { app } from "../../scripts/app.js";
-import { $el } from "../../scripts/ui.js";
+const { $el } = window.comfyAPI.ui;
 
 app.registerExtension({
     name: "HeartMuLa.FolderPicker",
@@ -206,3 +206,4 @@ async function showFolderPicker(onSelect) {
     document.body.appendChild(dialog);
     updateList(""); // Start at default
 }
+
